@@ -2,6 +2,15 @@
   "name": "intranet-print-assistant",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
+  "homepage": "https://github.com/HiveWang/print-assistant#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/HiveWang/print-assistant.git"
+  },
+  "bugs": {
+    "url": "https://github.com/HiveWang/print-assistant/issues"
+  },
   "engines": {
     "node": ">=22.13.0"
   },
