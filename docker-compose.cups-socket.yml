@@ -1,0 +1,6 @@
+services:
+  api:
+    environment:
+      CUPS_SERVER: /var/run/cups/cups.sock
+    volumes:
+      - /var/run/cups/cups.sock:/var/run/cups/cups.sock
