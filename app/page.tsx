@@ -25,6 +25,7 @@ import {
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createSelectedFileId } from "./file-id";
 
 type PrinterInfo = {
   name: string;
@@ -161,7 +162,7 @@ export default function PrintAssistant() {
         }
         seen.add(signature);
         next.push({
-          id: `${signature}-${crypto.randomUUID()}`,
+          id: createSelectedFileId(),
           file,
         });
       }
