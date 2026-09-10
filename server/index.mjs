@@ -7,6 +7,11 @@ import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import express from "express";
 import multer from "multer";
+import {
+  cupsCommandEnvironment,
+  parseCupsJobId,
+  parsePrinterState,
+} from "./cups.mjs";
 
 const execFileAsync = promisify(execFile);
 const PORT = Number.parseInt(process.env.PORT || "8787", 10);
@@ -137,6 +142,13 @@ async function run(command, args, options = {}) {
   });
 }
 
+async function runCups(command, args, options = {}) {
+  return run(command, args, {
+    ...options,
+    env: cupsCommandEnvironment(options.env || process.env),
+  });
+}
+
 function printerLocations() {
   try {
     return JSON.parse(process.env.PRINTER_LOCATIONS_JSON || "{}");
@@ -147,7 +159,7 @@ function printerLocations() {
 
 async function printerSupportsColor(name) {
   try {
-    const { stdout } = await run("lpoptions", ["-p", name, "-l"], {
+    const { stdout } = await runCups("lpoptions", ["-p", name, "-l"], {
       timeout: 3500,
     });
     return /(ColorModel|ColorMode|print-color-mode)/i.test(stdout);
@@ -161,36 +173,24 @@ async function discoverPrinters({ fresh = false } = {}) {
 
   const locations = printerLocations();
   try {
-    const { stdout } = await run("lpstat", ["-p", "-d"], { timeout: 5000 });
-    const lines = stdout.split(/\r?\n/);
-    const defaultLine = lines.find((line) =>
-      line.startsWith("system default destination:"),
-    );
-    const defaultPrinter =
-      process.env.DEFAULT_PRINTER ||
-      defaultLine?.split(":").slice(1).join(":").trim() ||
-      "";
-    const queueRows = lines
-      .map((line) => line.match(/^printer\s+(\S+)\s+(.+)$/i))
-      .filter(Boolean);
+    const { stdout } = await runCups("lpstat", ["-p", "-d"], {
+      timeout: 5000,
+    });
+    const parsedState = parsePrinterState(stdout, {
+      locations,
+      preferredDefault: process.env.DEFAULT_PRINTER || "",
+    });
     const printers = await Promise.all(
-      queueRows.map(async (match) => {
-        const name = match[1];
-        const detail = match[2];
+      parsedState.printers.map(async (printer) => {
         return {
-          name,
-          location: locations[name] || "",
-          isDefault: name === defaultPrinter,
-          color: await printerSupportsColor(name),
-          status: /disabled|not accepting|offline/i.test(detail)
-            ? "offline"
-            : "online",
+          ...printer,
+          color: await printerSupportsColor(printer.name),
         };
       }),
     );
     printerCache = {
       printers,
-      defaultPrinter: defaultPrinter || printers[0]?.name || "",
+      defaultPrinter: parsedState.defaultPrinter,
       expiresAt: Date.now() + 15_000,
     };
     return printerCache;
@@ -318,10 +318,6 @@ async function convertToPrintable(file, job) {
   return convertedPath;
 }
 
-function parseCupsJobId(output) {
-  return output.match(/request id is\s+(\S+)/i)?.[1] || "";
-}
-
 async function waitForCups(job, cupsJobId) {
   if (!cupsJobId) {
     await sleep(500);
@@ -334,13 +330,15 @@ async function waitForCups(job, cupsJobId) {
 
   while (Date.now() - startedAt < maximumWait) {
     if (job.cancelRequested) {
-      await run("cancel", [cupsJobId], { timeout: 5000 }).catch(() => {});
+      await runCups("cancel", [cupsJobId], { timeout: 5000 }).catch(() => {});
       throw new CancelledError("任务已取消");
     }
     try {
-      const { stdout } = await run("lpstat", ["-W", "not-completed", "-o"], {
-        timeout: 5000,
-      });
+      const { stdout } = await runCups(
+        "lpstat",
+        ["-W", "not-completed", "-o"],
+        { timeout: 5000 },
+      );
       if (!stdout.includes(cupsJobId)) return;
     } catch {
       return;
@@ -387,7 +385,7 @@ async function processJob(job) {
       file.status = "printing";
       job.progress = Math.round(((index + 0.45) / job.files.length) * 90 + 5);
 
-      const { stdout } = await run(
+      const { stdout } = await runCups(
         "lp",
         [
           "-d",
@@ -604,7 +602,7 @@ app.post("/api/jobs/:jobId/cancel", async (req, res) => {
   job.cancelRequested = true;
   await Promise.all(
     job.cupsJobIds.map((jobId) =>
-      run("cancel", [jobId], { timeout: 5000 }).catch(() => {}),
+      runCups("cancel", [jobId], { timeout: 5000 }).catch(() => {}),
     ),
   );
   res.status(202).json({ status: "cancelling" });
