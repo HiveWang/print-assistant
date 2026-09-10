@@ -10,6 +10,7 @@ import multer from "multer";
 
 const execFileAsync = promisify(execFile);
 const PORT = Number.parseInt(process.env.PORT || "8787", 10);
+const HOST = process.env.HOST || "0.0.0.0";
 const SESSION_TTL_MS =
   Number.parseInt(process.env.SESSION_TTL_HOURS || "8", 10) * 60 * 60 * 1000;
 const MAX_FILE_SIZE_MB = Number.parseInt(
@@ -630,8 +631,8 @@ const sweep = setInterval(async () => {
 sweep.unref();
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Print Assistant API listening on ${PORT}`);
+  app.listen(PORT, HOST, () => {
+    console.log(`Print Assistant API listening on ${HOST}:${PORT}`);
   });
 }
 
